@@ -1,0 +1,209 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <SoftwareSerial.h>
+
+// RS-485 Configuration
+#define BAUD_RATE 9600 // Set to 9600 for debugging
+#define SLAVE_ID 0x01 // Configurable: 0x01 to 0x04 for each SlaveBoard
+#define START_BYTE 0xFF
+#define END_BYTE 0xFE
+#define RS485_RX 10 // SoftwareSerial RX pin
+#define RS485_TX 11 // SoftwareSerial TX pin
+#define RS485_DE 12 // Driver Enable pin for MAX485
+
+// I2C Configuration
+#define MOTOR_BASE_ADDR 0x08 // MotorBoard at 0x08
+#define NUM_MOTORS 1 // Testing with one MotorBoard
+
+// Polling Interval
+const unsigned long POLL_INTERVAL = 5000; // Poll and send feedback every 5 seconds
+
+// SoftwareSerial for RS-485
+SoftwareSerial rs485(RS485_RX, RS485_TX);
+
+// Data Structures
+struct MotorCommand {
+  byte motor_board_id;
+  byte motor_id;
+  byte value;
+};
+
+struct MotorFeedback {
+  byte motor_board_id;
+  byte motor_id;
+  byte pot_value;
+};
+
+// Function Prototypes
+void process_rs485_commands();
+void send_to_motor_board(MotorCommand cmd);
+void poll_motor_boards();
+void send_feedback(byte motor_board_id, byte motor_id, byte pot_value);
+byte calculate_checksum(byte* data, byte len);
+
+void setup() {
+  // Initialize Serial for debugging
+  Serial.begin(9600);
+  while (!Serial);
+
+  // Initialize I2C as Master
+  Wire.begin();
+
+  // Initialize RS-485
+  rs485.begin(BAUD_RATE);
+  pinMode(RS485_DE, OUTPUT);
+  digitalWrite(RS485_DE, LOW); // Receive mode
+
+  Serial.print("SlaveBoard Started, ID=0x");
+  Serial.println(SLAVE_ID, HEX);
+
+  // Test I2C connection to MotorBoard
+  Wire.beginTransmission(MOTOR_BASE_ADDR);
+  byte error = Wire.endTransmission();
+  if (error == 0) {
+    Serial.println("I2C: MotorBoard 0x8 detected");
+  } else {
+    Serial.print("I2C: MotorBoard 0x8 not detected, error=");
+    Serial.println(error);
+  }
+}
+
+void loop() {
+  static unsigned long last_poll_time = 0;
+  unsigned long current_time = millis();
+
+  // Process RS-485 commands
+  process_rs485_commands();
+  
+  // Poll MotorBoards and send feedback every 5 seconds
+  if (current_time - last_poll_time >= POLL_INTERVAL) {
+    poll_motor_boards();
+    last_poll_time = current_time;
+  }
+}
+
+// Process incoming RS-485 commands
+void process_rs485_commands() {
+  static byte buffer[7];
+  static byte index = 0;
+  
+  while (rs485.available()) {
+    byte data = rs485.read();
+    Serial.print("RS485 Received byte: 0x");
+    Serial.println(data, HEX); // Debug raw bytes
+    if (index == 0 && data != START_BYTE) continue; // Wait for start byte
+    
+    buffer[index++] = data;
+    if (index == 7 && buffer[6] == END_BYTE) {
+      if (buffer[5] == calculate_checksum(buffer, 5) && buffer[1] == SLAVE_ID) {
+        MotorCommand cmd = {buffer[2], buffer[3], buffer[4]};
+        Serial.print("RS485 Valid Command: Slave=");
+        Serial.print(buffer[1]);
+        Serial.print(", MotorBoard=");
+        Serial.print(cmd.motor_board_id);
+        Serial.print(", Motor=");
+        Serial.print(cmd.motor_id);
+        Serial.print(", Value=");
+        Serial.println(cmd.value);
+        send_to_motor_board(cmd);
+      } else {
+        Serial.print("RS485 Error: Invalid checksum or SlaveID, received=");
+        Serial.print(buffer[1], HEX);
+        Serial.print(", expected=");
+        Serial.println(SLAVE_ID, HEX);
+      }
+      index = 0; // Reset buffer
+    } else if (index >= 7) {
+      Serial.println("RS485 Error: Buffer overflow");
+      index = 0; // Reset on overflow
+    }
+  }
+}
+
+// Send command to MotorBoard via I2C
+void send_to_motor_board(MotorCommand cmd) {
+  if (cmd.motor_board_id == 1) { // Only process for MotorBoard 1 (0x08)
+    byte addr = MOTOR_BASE_ADDR; // 0x08
+    Wire.beginTransmission(addr);
+    Wire.write(cmd.motor_id); // Channel (1 or 2)
+    Wire.write(cmd.value);    // Value (0–255)
+    byte error = Wire.endTransmission();
+    
+    Serial.print("I2C Sent: MotorBoard=0x");
+    Serial.print(addr, HEX);
+    Serial.print(", Channel=");
+    Serial.print(cmd.motor_id);
+    Serial.print(", Value=");
+    Serial.print(cmd.value);
+    if (error) {
+      Serial.print(", Error=");
+      Serial.println(error);
+    } else {
+      Serial.println(", Success");
+    }
+  }
+}
+
+// Poll MotorBoards for potentiometer feedback and send to MainBoard
+void poll_motor_boards() {
+  byte addr = MOTOR_BASE_ADDR; // 0x08
+  
+  // Request data: [1, potValueCh1, 2, potValueCh2]
+  Wire.requestFrom(addr, 4);
+  delay(10); // Give MotorBoard time to respond
+  if (Wire.available() >= 4) {
+    byte ch1 = Wire.read();
+    byte pot1 = Wire.read();
+    byte ch2 = Wire.read();
+    byte pot2 = Wire.read();
+    
+    Serial.print("I2C Received: MotorBoard=0x");
+    Serial.print(addr, HEX);
+    Serial.print(", Ch1=");
+    Serial.print(pot1);
+    Serial.print(", Ch2=");
+    Serial.println(pot2);
+    
+    if (ch1 == 1 && pot1 <= 255) {
+      send_feedback(1, 1, pot1);
+    }
+    if (ch2 == 2 && pot2 <= 255) {
+      send_feedback(1, 2, pot2);
+    }
+  } else {
+    Serial.print("I2C Error: MotorBoard 0x");
+    Serial.print(addr, HEX);
+    Serial.print(", Bytes available=");
+    Serial.println(Wire.available());
+    while (Wire.available()) Wire.read(); // Clear buffer
+  }
+}
+
+// Send feedback to MainBoard via RS-485
+void send_feedback(byte motor_board_id, byte motor_id, byte pot_value) {
+  byte packet[7] = {START_BYTE, SLAVE_ID, motor_board_id, motor_id, pot_value, 0, END_BYTE};
+  packet[5] = calculate_checksum(packet, 5);
+  
+  digitalWrite(RS485_DE, HIGH); // Transmit mode
+  rs485.write(packet, 7);
+  rs485.flush();
+  digitalWrite(RS485_DE, LOW); // Back to receive mode
+  
+  Serial.print("RS485 Sent: Slave=");
+  Serial.print(SLAVE_ID);
+  Serial.print(", MotorBoard=");
+  Serial.print(motor_board_id);
+  Serial.print(", Motor=");
+  Serial.print(motor_id);
+  Serial.print(", Pot=");
+  Serial.println(pot_value);
+}
+
+// Calculate checksum (sum of bytes modulo 256)
+byte calculate_checksum(byte* data, byte len) {
+  byte sum = 0;
+  for (byte i = 0; i < len; i++) {
+    sum += data[i];
+  }
+  return sum;
+}
