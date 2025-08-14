@@ -1,8 +1,11 @@
 // MainBoard Code
 #include <Arduino.h>
 #include <Wire.h>
+#include <SoftwareSerial.h>
 
-const int DE_PIN = 2; // RS485 DE pin
+const byte DE_PIN = 12; // RS485 Driver Enable
+const byte DI_PIN = 11; // RS485 Data In (TX)
+const byte RO_PIN = 10; // RS485 Receive Out (RX)
 const byte START_BYTE = 0xAA;
 const byte END_BYTE = 0xBB;
 const byte DISPLAY_BASE_ADDR = 0x08; // DisplayBoards 0x08 to 0x12
@@ -13,6 +16,7 @@ const byte CASTLE_UP_PIN = A0; // Button to increase castle
 const byte CASTLE_DOWN_PIN = A1; // Button to decrease castle
 const int DEBOUNCE_TIME = 50;
 
+SoftwareSerial rs485(RO_PIN, DI_PIN); // RX, TX for RS485
 byte current_castle = 1; // Start with Castle 1 (1-4)
 byte targets[22];
 byte actuals[22];
@@ -28,24 +32,24 @@ bool getPotsFromCastle(byte castle, byte* pots);
 void setTargetToCastle(byte castle, byte motor_index, byte value);
 void sendRS485(byte to_id, byte cmd, byte len, byte* data);
 
-
 void setup() {
-  Serial.begin(9600); // RS485 baud rate
+  Serial.begin(9600); // Terminal output
+  rs485.begin(9600);  // RS485 communication
   pinMode(DE_PIN, OUTPUT);
   digitalWrite(DE_PIN, LOW);
 
   pinMode(CASTLE_UP_PIN, INPUT_PULLUP);
   pinMode(CASTLE_DOWN_PIN, INPUT_PULLUP);
 
-  Wire.begin(); // I2C master
-
-  // Initialize targets to invalid
-  memset(targets, 255, sizeof(targets));
+  Wire.begin(); // I2C master for DisplayBoards
+  memset(targets, 255, sizeof(targets)); // Initialize targets
+  memset(actuals, 255, sizeof(actuals)); // Initialize actuals
 
   // Wait for boards to initialize
   delay(2000);
   switchCastle(current_castle); // Initial setup
   initial_setup_done = true;
+  Serial.println("MainBoard started");
 }
 
 void loop() {
@@ -64,24 +68,28 @@ void handleCastleSwitch() {
       current_castle = min(4, current_castle + 1);
       switchCastle(current_castle);
       last_button_time = current_time;
+      Serial.print("Switched to Castle ");
+      Serial.println(current_castle);
     } else if (digitalRead(CASTLE_DOWN_PIN) == LOW) {
       current_castle = max(1, current_castle - 1);
       switchCastle(current_castle);
       last_button_time = current_time;
+      Serial.print("Switched to Castle ");
+      Serial.println(current_castle);
     }
   }
 }
 
 void switchCastle(byte castle) {
-  // Get pots for new castle
   byte pots[22];
   if (getPotsFromCastle(castle, pots)) {
-    // Set targets and actuals to pots
     memcpy(targets, pots, sizeof(pots));
     memcpy(actuals, pots, sizeof(pots));
-    // Send to displays as type 0 (target) and type 1 (actual)
-    sendToDisplays(0, pots); // targets
-    sendToDisplays(1, pots); // actuals
+    sendToDisplays(0, pots); // Targets
+    sendToDisplays(1, pots); // Actuals
+    Serial.println("Castle switch: Pots updated and sent to displays");
+  } else {
+    Serial.println("Castle switch: Failed to get pots");
   }
 }
 
@@ -100,16 +108,18 @@ void pollTargets() {
         if (targets[index1] != v1) {
           targets[index1] = v1;
           setTargetToCastle(current_castle, index1, v1);
-          Serial.println("Current castle: " + current_castle);
-          Serial.println("Index1: " + index1);
-          Serial.println("value1: " + v1);
+          Serial.print("Target updated: Display ");
+          Serial.print(d);
+          Serial.print(", Ch1=");
+          Serial.println(v1);
         }
         if (targets[index2] != v2) {
           targets[index2] = v2;
           setTargetToCastle(current_castle, index2, v2);
-          Serial.println("Current castle: " + current_castle);
-          Serial.println("Index2: " + index2);
-          Serial.println("value2: " + v2);
+          Serial.print("Target updated: Display ");
+          Serial.print(d);
+          Serial.print(", Ch2=");
+          Serial.println(v2);
         }
       }
     }
@@ -120,7 +130,8 @@ void pollActualsAndUpdate() {
   byte pots[22];
   if (getPotsFromCastle(current_castle, pots)) {
     memcpy(actuals, pots, sizeof(pots));
-    sendToDisplays(1, pots); // Send actuals type 1
+    sendToDisplays(1, pots); // Send actuals
+    Serial.println("Actuals polled and sent to displays");
   }
 }
 
@@ -131,14 +142,14 @@ void sendToDisplays(byte type, byte* values) {
     byte index2 = d * 2 + 1;
 
     Wire.beginTransmission(addr);
-    Wire.write(type);
-    Wire.write((byte)1);
+    Wire.write(type); // 0 for target, 1 for actual
+    Wire.write((byte)1); // Channel 1
     Wire.write(values[index1]);
     Wire.endTransmission();
 
     Wire.beginTransmission(addr);
     Wire.write(type);
-    Wire.write((byte)2);
+    Wire.write((byte)2); // Channel 2
     Wire.write(values[index2]);
     Wire.endTransmission();
   }
@@ -150,22 +161,21 @@ bool getPotsFromCastle(byte castle, byte* pots) {
   byte dummy[0];
   sendRS485(castle, cmd, len, dummy);
 
-  // Wait for response
   unsigned long start_time = millis();
   while (millis() - start_time < 500) {
-    if (Serial.available() >= 28) { // 6 + 22 (start,id,cmd,len=22,data22,chk,end)
-      byte incoming = Serial.read();
+    if (rs485.available() >= 28) {
+      byte incoming = rs485.read();
       if (incoming == START_BYTE) {
-        byte id = Serial.read();
-        byte rcmd = Serial.read();
-        byte rlen = Serial.read();
+        byte id = rs485.read();
+        byte rcmd = rs485.read();
+        byte rlen = rs485.read();
         if (id == castle && rcmd == 1 && rlen == 22) {
           byte data[22];
           for (byte i = 0; i < 22; i++) {
-            data[i] = Serial.read();
+            data[i] = rs485.read();
           }
-          byte checksum = Serial.read();
-          byte end = Serial.read();
+          byte checksum = rs485.read();
+          byte end = rs485.read();
 
           byte calc_checksum = id ^ rcmd ^ rlen;
           for (byte i = 0; i < 22; i++) {
@@ -179,6 +189,8 @@ bool getPotsFromCastle(byte castle, byte* pots) {
       }
     }
   }
+  Serial.print("Failed to get pots from Castle ");
+  Serial.println(castle);
   return false;
 }
 
@@ -187,23 +199,27 @@ void setTargetToCastle(byte castle, byte motor_index, byte value) {
   byte len = 2;
   byte data[2] = {motor_index, value};
   sendRS485(castle, cmd, len, data);
-
-  // Optional: wait for ack, but for simplicity, assume sent
+  Serial.print("Set target: Castle ");
+  Serial.print(castle);
+  Serial.print(", Motor ");
+  Serial.print(motor_index);
+  Serial.print(", Value ");
+  Serial.println(value);
 }
 
 void sendRS485(byte to_id, byte cmd, byte len, byte* data) {
   digitalWrite(DE_PIN, HIGH);
-  Serial.write(START_BYTE);
-  Serial.write(to_id);
-  Serial.write(cmd);
-  Serial.write(len);
+  rs485.write(START_BYTE);
+  rs485.write(to_id);
+  rs485.write(cmd);
+  rs485.write(len);
   byte checksum = to_id ^ cmd ^ len;
   for (byte i = 0; i < len; i++) {
-    Serial.write(data[i]);
+    rs485.write(data[i]);
     checksum ^= data[i];
   }
-  Serial.write(checksum);
-  Serial.write(END_BYTE);
-  Serial.flush();
+  rs485.write(checksum);
+  rs485.write(END_BYTE);
+  rs485.flush();
   digitalWrite(DE_PIN, LOW);
 }
