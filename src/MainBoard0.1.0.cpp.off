@@ -11,7 +11,7 @@ const byte END_BYTE = 0xBB;
 const byte DISPLAY_BASE_ADDR = 0x08; // DisplayBoards 0x08 to 0x12
 const byte NUM_DISPLAY_BOARDS = 11;
 const byte NUM_CHANNELS = 22; // 11 * 2
-const unsigned long POLL_INTERVAL = 200; // ms
+const unsigned long POLL_INTERVAL = 500; // ms
 const byte CASTLE_UP_PIN = A0; // Button to increase castle
 const byte CASTLE_DOWN_PIN = A1; // Button to decrease castle
 const int DEBOUNCE_TIME = 50;
@@ -141,6 +141,15 @@ void sendToDisplays(byte type, byte* values) {
     byte index1 = d * 2;
     byte index2 = d * 2 + 1;
 
+    Serial.print("Sending to Display 0x");
+    Serial.print(addr, HEX);
+    Serial.print(", Type=");
+    Serial.print(type);
+    Serial.print(", Ch1=");
+    Serial.print(values[index1]);
+    Serial.print(", Ch2=");
+    Serial.println(values[index2]);
+
     Wire.beginTransmission(addr);
     Wire.write(type); // 0 for target, 1 for actual
     Wire.write((byte)1); // Channel 1
@@ -156,9 +165,9 @@ void sendToDisplays(byte type, byte* values) {
 }
 
 bool getPotsFromCastle(byte castle, byte* pots) {
-  byte cmd = 1;
+  byte cmd = 1;// indica ao castelo o comando que ele deve rodar
   byte len = 0;
-  byte dummy[0];
+  byte dummy[0];// dado qlqr só pra completar padrão do dado
   sendRS485(castle, cmd, len, dummy);
 
   unsigned long start_time = millis();

@@ -259,30 +259,43 @@ void sendI2C(byte channel, int value) {
 
 // I2C receive event
 void receiveEvent(int howMany) {
-  if (howMany >= 2) {
-    byte channel = Wire.read(); // Read channel identifier
-    int receivedValue = Wire.read(); // Read value
-    
-    // Log incoming payload
-    Serial.print("I2C In: Address=0x");
-    Serial.print(I2C_ADDRESS, HEX);
+  Serial.print("I2C Received: Address=0x");
+  Serial.print(I2C_ADDRESS, HEX);
+  Serial.print(", Bytes=");
+  Serial.println(howMany);
+
+  if (howMany >= 3) { // Expect [type, channel, value]
+    byte type = Wire.read(); // 0 for target, 1 for actual
+    byte channel = Wire.read();
+    int receivedValue = Wire.read();
+
+    Serial.print("Type=");
+    Serial.print(type);
     Serial.print(", Channel=");
     Serial.print(channel);
     Serial.print(", Value=");
     Serial.println(receivedValue);
-    
-    if (channel == 1 && !lockedCh1) {
-      valueCh1 = constrain(receivedValue, 0, 99);
-      lastChangeTimeCh1 = millis();
-      blinkActiveCh1 = true;
-    } else if (channel == 2 && !lockedCh2) {
-      valueCh2 = constrain(receivedValue, 0, 99);
-      lastChangeTimeCh2 = millis();
-      blinkActiveCh2 = true;
+
+    if (type == 1) { // Only update actuals (potentiometer values)
+      if (channel == 1 && !lockedCh1) {
+        valueCh1 = constrain(receivedValue, 0, 99);
+        lastChangeTimeCh1 = millis();
+        blinkActiveCh1 = true;
+        Serial.print("Updated Ch1 to ");
+        Serial.println(valueCh1);
+      } else if (channel == 2 && !lockedCh2) {
+        valueCh2 = constrain(receivedValue, 0, 99);
+        lastChangeTimeCh2 = millis();
+        blinkActiveCh2 = true;
+        Serial.print("Updated Ch2 to ");
+        Serial.println(valueCh2);
+      }
     }
   }
   while (Wire.available()) {
-    Wire.read(); // Clear any extra bytes
+    byte discarded = Wire.read();
+    Serial.print("Discarded byte: 0x");
+    Serial.println(discarded, HEX);
   }
 }
 
