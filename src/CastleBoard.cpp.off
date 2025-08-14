@@ -1,209 +1,109 @@
+// CastleBoard Code
 #include <Arduino.h>
 #include <Wire.h>
-#include <SoftwareSerial.h>
 
-// RS-485 Configuration
-#define BAUD_RATE 9600 // Set to 9600 for debugging
-#define SLAVE_ID 0x01 // Configurable: 0x01 to 0x04 for each SlaveBoard
-#define START_BYTE 0xFF
-#define END_BYTE 0xFE
-#define RS485_RX 10 // SoftwareSerial RX pin
-#define RS485_TX 11 // SoftwareSerial TX pin
-#define RS485_DE 12 // Driver Enable pin for MAX485
+const byte CASTLE_ID = 1; // Change this for each CastleBoard: 1 to 4
+const int DE_PIN = 2; // RS485 DE pin
+const byte START_BYTE = 0xAA;
+const byte END_BYTE = 0xBB;
+const byte MOTOR_BASE_ADDR = 0x08; // MotorBoards from 0x08 to 0x12 (11 boards)
+const byte NUM_MOTOR_BOARDS = 11;
 
-// I2C Configuration
-#define MOTOR_BASE_ADDR 0x08 // MotorBoard at 0x08
-#define NUM_MOTORS 1 // Testing with one MotorBoard
+byte pot_values[22]; // 11 boards * 2 channels
 
-// Polling Interval
-const unsigned long POLL_INTERVAL = 5000; // Poll and send feedback every 5 seconds
-
-// SoftwareSerial for RS-485
-SoftwareSerial rs485(RS485_RX, RS485_TX);
-
-// Data Structures
-struct MotorCommand {
-  byte motor_board_id;
-  byte motor_id;
-  byte value;
-};
-
-struct MotorFeedback {
-  byte motor_board_id;
-  byte motor_id;
-  byte pot_value;
-};
-
-// Function Prototypes
-void process_rs485_commands();
-void send_to_motor_board(MotorCommand cmd);
-void poll_motor_boards();
-void send_feedback(byte motor_board_id, byte motor_id, byte pot_value);
-byte calculate_checksum(byte* data, byte len);
+void processCommand(byte cmd, byte len, byte* data);
+void fetchAllPots();
+void setMotorTarget(byte motor_index, byte value);
+void sendResponse(byte id, byte cmd, byte len, byte* data);
 
 void setup() {
-  // Initialize Serial for debugging
-  Serial.begin(9600);
-  while (!Serial);
+  Serial.begin(9600); // RS485 baud rate
+  pinMode(DE_PIN, OUTPUT);
+  digitalWrite(DE_PIN, LOW); // Receive mode by default
 
-  // Initialize I2C as Master
-  Wire.begin();
-
-  // Initialize RS-485
-  rs485.begin(BAUD_RATE);
-  pinMode(RS485_DE, OUTPUT);
-  digitalWrite(RS485_DE, LOW); // Receive mode
-
-  Serial.print("SlaveBoard Started, ID=0x");
-  Serial.println(SLAVE_ID, HEX);
-
-  // Test I2C connection to MotorBoard
-  Wire.beginTransmission(MOTOR_BASE_ADDR);
-  byte error = Wire.endTransmission();
-  if (error == 0) {
-    Serial.println("I2C: MotorBoard 0x8 detected");
-  } else {
-    Serial.print("I2C: MotorBoard 0x8 not detected, error=");
-    Serial.println(error);
-  }
+  Wire.begin(); // I2C master for MotorBoards
 }
 
 void loop() {
-  static unsigned long last_poll_time = 0;
-  unsigned long current_time = millis();
+  if (Serial.available() > 0) {
+    byte incoming = Serial.read();
+    if (incoming == START_BYTE) {
+      byte id = Serial.read();
+      if (id == CASTLE_ID) {
+        byte cmd = Serial.read();
+        byte len = Serial.read();
+        byte data[22]; // Max len for pots
+        for (byte i = 0; i < len; i++) {
+          data[i] = Serial.read();
+        }
+        byte checksum = Serial.read();
+        byte end = Serial.read();
 
-  // Process RS-485 commands
-  process_rs485_commands();
-  
-  // Poll MotorBoards and send feedback every 5 seconds
-  if (current_time - last_poll_time >= POLL_INTERVAL) {
-    poll_motor_boards();
-    last_poll_time = current_time;
-  }
-}
+        byte calc_checksum = id ^ cmd ^ len;
+        for (byte i = 0; i < len; i++) {
+          calc_checksum ^= data[i];
+        }
 
-// Process incoming RS-485 commands
-void process_rs485_commands() {
-  static byte buffer[7];
-  static byte index = 0;
-  
-  while (rs485.available()) {
-    byte data = rs485.read();
-    Serial.print("RS485 Received byte: 0x");
-    Serial.println(data, HEX); // Debug raw bytes
-    if (index == 0 && data != START_BYTE) continue; // Wait for start byte
-    
-    buffer[index++] = data;
-    if (index == 7 && buffer[6] == END_BYTE) {
-      if (buffer[5] == calculate_checksum(buffer, 5) && buffer[1] == SLAVE_ID) {
-        MotorCommand cmd = {buffer[2], buffer[3], buffer[4]};
-        Serial.print("RS485 Valid Command: Slave=");
-        Serial.print(buffer[1]);
-        Serial.print(", MotorBoard=");
-        Serial.print(cmd.motor_board_id);
-        Serial.print(", Motor=");
-        Serial.print(cmd.motor_id);
-        Serial.print(", Value=");
-        Serial.println(cmd.value);
-        send_to_motor_board(cmd);
-      } else {
-        Serial.print("RS485 Error: Invalid checksum or SlaveID, received=");
-        Serial.print(buffer[1], HEX);
-        Serial.print(", expected=");
-        Serial.println(SLAVE_ID, HEX);
+        if (end == END_BYTE && checksum == calc_checksum) {
+          processCommand(cmd, len, data);
+        }
       }
-      index = 0; // Reset buffer
-    } else if (index >= 7) {
-      Serial.println("RS485 Error: Buffer overflow");
-      index = 0; // Reset on overflow
     }
   }
 }
 
-// Send command to MotorBoard via I2C
-void send_to_motor_board(MotorCommand cmd) {
-  if (cmd.motor_board_id == 1) { // Only process for MotorBoard 1 (0x08)
-    byte addr = MOTOR_BASE_ADDR; // 0x08
-    Wire.beginTransmission(addr);
-    Wire.write(cmd.motor_id); // Channel (1 or 2)
-    Wire.write(cmd.value);    // Value (0–255)
-    byte error = Wire.endTransmission();
-    
-    Serial.print("I2C Sent: MotorBoard=0x");
-    Serial.print(addr, HEX);
-    Serial.print(", Channel=");
-    Serial.print(cmd.motor_id);
-    Serial.print(", Value=");
-    Serial.print(cmd.value);
-    if (error) {
-      Serial.print(", Error=");
-      Serial.println(error);
-    } else {
-      Serial.println(", Success");
+void processCommand(byte cmd, byte len, byte* data) {
+  if (cmd == 1) { // Get all pots
+    fetchAllPots();
+    sendResponse(CASTLE_ID, 1, 22, pot_values);
+  } else if (cmd == 2 && len == 2) { // Set target
+    byte motor_index = data[0]; // 0-21
+    byte value = data[1]; // 0-99
+    setMotorTarget(motor_index, value);
+    sendResponse(CASTLE_ID, 2, 0, NULL);
+  }
+}
+
+void fetchAllPots() {
+  for (byte board = 0; board < NUM_MOTOR_BOARDS; board++) {
+    byte addr = MOTOR_BASE_ADDR + board;
+    Wire.requestFrom(addr, (byte)4);
+    if (Wire.available() == 4) {
+      byte ch1 = Wire.read();
+      byte p1 = Wire.read();
+      byte ch2 = Wire.read();
+      byte p2 = Wire.read();
+      if (ch1 == 1 && ch2 == 2) {
+        pot_values[board * 2] = p1;
+        pot_values[board * 2 + 1] = p2;
+      }
     }
   }
 }
 
-// Poll MotorBoards for potentiometer feedback and send to MainBoard
-void poll_motor_boards() {
-  byte addr = MOTOR_BASE_ADDR; // 0x08
-  
-  // Request data: [1, potValueCh1, 2, potValueCh2]
-  Wire.requestFrom(addr, 4);
-  delay(10); // Give MotorBoard time to respond
-  if (Wire.available() >= 4) {
-    byte ch1 = Wire.read();
-    byte pot1 = Wire.read();
-    byte ch2 = Wire.read();
-    byte pot2 = Wire.read();
-    
-    Serial.print("I2C Received: MotorBoard=0x");
-    Serial.print(addr, HEX);
-    Serial.print(", Ch1=");
-    Serial.print(pot1);
-    Serial.print(", Ch2=");
-    Serial.println(pot2);
-    
-    if (ch1 == 1 && pot1 <= 255) {
-      send_feedback(1, 1, pot1);
-    }
-    if (ch2 == 2 && pot2 <= 255) {
-      send_feedback(1, 2, pot2);
-    }
-  } else {
-    Serial.print("I2C Error: MotorBoard 0x");
-    Serial.print(addr, HEX);
-    Serial.print(", Bytes available=");
-    Serial.println(Wire.available());
-    while (Wire.available()) Wire.read(); // Clear buffer
-  }
+void setMotorTarget(byte motor_index, byte value) {
+  byte board = motor_index / 2;
+  byte channel = (motor_index % 2) + 1;
+  byte addr = MOTOR_BASE_ADDR + board;
+  Wire.beginTransmission(addr);
+  Wire.write(channel);
+  Wire.write(value);
+  Wire.endTransmission();
 }
 
-// Send feedback to MainBoard via RS-485
-void send_feedback(byte motor_board_id, byte motor_id, byte pot_value) {
-  byte packet[7] = {START_BYTE, SLAVE_ID, motor_board_id, motor_id, pot_value, 0, END_BYTE};
-  packet[5] = calculate_checksum(packet, 5);
-  
-  digitalWrite(RS485_DE, HIGH); // Transmit mode
-  rs485.write(packet, 7);
-  rs485.flush();
-  digitalWrite(RS485_DE, LOW); // Back to receive mode
-  
-  Serial.print("RS485 Sent: Slave=");
-  Serial.print(SLAVE_ID);
-  Serial.print(", MotorBoard=");
-  Serial.print(motor_board_id);
-  Serial.print(", Motor=");
-  Serial.print(motor_id);
-  Serial.print(", Pot=");
-  Serial.println(pot_value);
-}
-
-// Calculate checksum (sum of bytes modulo 256)
-byte calculate_checksum(byte* data, byte len) {
-  byte sum = 0;
+void sendResponse(byte id, byte cmd, byte len, byte* data) {
+  digitalWrite(DE_PIN, HIGH);
+  Serial.write(START_BYTE);
+  Serial.write(id);
+  Serial.write(cmd);
+  Serial.write(len);
+  byte checksum = id ^ cmd ^ len;
   for (byte i = 0; i < len; i++) {
-    sum += data[i];
+    Serial.write(data[i]);
+    checksum ^= data[i];
   }
-  return sum;
+  Serial.write(checksum);
+  Serial.write(END_BYTE);
+  Serial.flush();
+  digitalWrite(DE_PIN, LOW);
 }
