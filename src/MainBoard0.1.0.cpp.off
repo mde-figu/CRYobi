@@ -133,6 +133,12 @@ void pollActualsAndUpdate() {
     sendToDisplays(1, pots); // Send actuals
     Serial.println("Actuals polled and sent to displays");
   }
+  else {
+    Serial.println("reiniciou setup");
+    rs485.end();
+    delay(200);
+    rs485.begin(9600);
+  }
 }
 
 void sendToDisplays(byte type, byte* values) {
@@ -168,6 +174,8 @@ bool getPotsFromCastle(byte castle, byte* pots) {
   byte cmd = 1;// indica ao castelo o comando que ele deve rodar
   byte len = 0;
   byte dummy[0];// dado qlqr só pra completar padrão do dado
+  sendRS485(castle, cmd, len, dummy);
+  delay(200);
   sendRS485(castle, cmd, len, dummy);
 
   unsigned long start_time = millis();
