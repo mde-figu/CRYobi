@@ -1,11 +1,6 @@
 // MainBoard Code
 #include <Arduino.h>
 #include <Wire.h>
-#include <SoftwareSerial.h>
-
-const byte DE_PIN = 12; // RS485 Driver Enable
-const byte DI_PIN = 11; // RS485 Data In (TX)
-const byte RO_PIN = 10; // RS485 Receive Out (RX)
 const byte START_BYTE = 0xAA;
 const byte END_BYTE = 0xBB;
 const byte DISPLAY_BASE_ADDR = 0x08; // DisplayBoards 0x08 to 0x12
@@ -16,7 +11,6 @@ const byte CASTLE_UP_PIN = A0; // Button to increase castle
 const byte CASTLE_DOWN_PIN = A1; // Button to decrease castle
 const int DEBOUNCE_TIME = 50;
 
-SoftwareSerial rs485(RO_PIN, DI_PIN); // RX, TX for RS485
 byte current_castle = 1; // Start with Castle 1 (1-4)
 byte targets[22];
 byte actuals[22];
@@ -34,9 +28,7 @@ void sendRS485(byte to_id, byte cmd, byte len, byte* data);
 
 void setup() {
   Serial.begin(9600); // Terminal output
-  rs485.begin(9600);  // RS485 communication
-  pinMode(DE_PIN, OUTPUT);
-  digitalWrite(DE_PIN, LOW);
+  Serial1.begin(9600);  // Hardware serial for communication
 
   pinMode(CASTLE_UP_PIN, INPUT_PULLUP);
   pinMode(CASTLE_DOWN_PIN, INPUT_PULLUP);
@@ -135,9 +127,9 @@ void pollActualsAndUpdate() {
   }
   else {
     Serial.println("reiniciou setup");
-    rs485.end();
+    Serial1.end();
     delay(200);
-    rs485.begin(9600);
+    Serial1.begin(9600);
   }
 }
 
@@ -180,19 +172,19 @@ bool getPotsFromCastle(byte castle, byte* pots) {
 
   unsigned long start_time = millis();
   while (millis() - start_time < 500) {
-    if (rs485.available() >= 28) {
-      byte incoming = rs485.read();
+    if (Serial1.available() >= 28) {
+      byte incoming = Serial1.read();
       if (incoming == START_BYTE) {
-        byte id = rs485.read();
-        byte rcmd = rs485.read();
-        byte rlen = rs485.read();
+        byte id = Serial1.read();
+        byte rcmd = Serial1.read();
+        byte rlen = Serial1.read();
         if (id == castle && rcmd == 1 && rlen == 22) {
           byte data[22];
           for (byte i = 0; i < 22; i++) {
-            data[i] = rs485.read();
+            data[i] = Serial1.read();
           }
-          byte checksum = rs485.read();
-          byte end = rs485.read();
+          byte checksum = Serial1.read();
+          byte end = Serial1.read();
 
           byte calc_checksum = id ^ rcmd ^ rlen;
           for (byte i = 0; i < 22; i++) {
@@ -225,18 +217,16 @@ void setTargetToCastle(byte castle, byte motor_index, byte value) {
 }
 
 void sendRS485(byte to_id, byte cmd, byte len, byte* data) {
-  digitalWrite(DE_PIN, HIGH);
-  rs485.write(START_BYTE);
-  rs485.write(to_id);
-  rs485.write(cmd);
-  rs485.write(len);
+  Serial1.write(START_BYTE);
+  Serial1.write(to_id);
+  Serial1.write(cmd);
+  Serial1.write(len);
   byte checksum = to_id ^ cmd ^ len;
   for (byte i = 0; i < len; i++) {
-    rs485.write(data[i]);
+    Serial1.write(data[i]);
     checksum ^= data[i];
   }
-  rs485.write(checksum);
-  rs485.write(END_BYTE);
-  rs485.flush();
-  digitalWrite(DE_PIN, LOW);
+  Serial1.write(checksum);
+  Serial1.write(END_BYTE);
+  Serial1.flush();
 }
