@@ -62,7 +62,6 @@ void processCommand(byte cmd, byte len, byte* data) {
   if (cmd == 1) { // Get all pots
     Serial.println("Recebeu CMD1 lê os potenciometros");
     fetchAllPots();
-    delay(500);
     sendResponse(CASTLE_ID, 1, 22, pot_values);
   } else if (cmd == 2 && len == 2) { // Set target
     Serial.println("Recebeu CMD2 Irá mover motor");

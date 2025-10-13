@@ -39,6 +39,8 @@ const int lockPressDuration = 2000; // 2 seconds to lock/unlock
 
 int valueCh1 = 0; // Current value for Channel 1 (0-99)
 int valueCh2 = 0; // Current value for Channel 2 (0-99)
+int targetCh1 = 0; // User-set target for Channel 1 (0-99)
+int targetCh2 = 0; // User-set target for Channel 2 (0-99)
 unsigned long lastButtonTimeCh1 = 0;
 unsigned long lastButtonTimeCh2 = 0;
 unsigned long lastChangeTimeCh1 = 0; // Time of last Ch1 value change
@@ -154,17 +156,19 @@ void handleButtons() {
       if (!lockedCh1) {
         if (upPressedCh1) {
           valueCh1 = min(99, valueCh1 + 1);
+          targetCh1 = valueCh1;
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
           blinkActiveCh1 = true;
           consolidatedCh1 = true;
         } else if (downPressedCh1) {
           valueCh1 = max(0, valueCh1 - 1);
+          targetCh1 = valueCh1;
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
           blinkActiveCh1 = true;
           consolidatedCh1 = true;
-        } 
+        }
         if ((upPressedCh1 == false && downPressedCh1 == false) && consolidatedCh1){
           sendI2C(1, valueCh1);
           delay(50);
@@ -207,12 +211,14 @@ void handleButtons() {
       if (!lockedCh2) {
         if (upPressedCh2) {
           valueCh2 = min(99, valueCh2 + 1);
+          targetCh2 = valueCh2;
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
           blinkActiveCh2 = true;
           sendI2C(2, valueCh2);
         } else if (downPressedCh2) {
           valueCh2 = max(0, valueCh2 - 1);
+          targetCh2 = valueCh2;
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
           blinkActiveCh2 = true;
@@ -304,19 +310,39 @@ void receiveEvent(int howMany) {
     Serial.print(", Value=");
     Serial.println(receivedValue);
 
-    if (type == 1) { // Only update actuals (potentiometer values)
+    if (type == 0) { // Target initialization - set both target and display
+      if (channel == 1 && !lockedCh1) {
+        targetCh1 = constrain(receivedValue, 0, 99);
+        valueCh1 = targetCh1;
+        lastChangeTimeCh1 = millis();
+        blinkActiveCh1 = true;
+        Serial.print("Initialized Ch1 target and value to ");
+        Serial.println(targetCh1);
+      } else if (channel == 2 && !lockedCh2) {
+        targetCh2 = constrain(receivedValue, 0, 99);
+        valueCh2 = targetCh2;
+        lastChangeTimeCh2 = millis();
+        blinkActiveCh2 = true;
+        Serial.print("Initialized Ch2 target and value to ");
+        Serial.println(targetCh2);
+      }
+    } else if (type == 1) { // Actual - only update display, preserve target
       if (channel == 1 && !lockedCh1) {
         valueCh1 = constrain(receivedValue, 0, 99);
         lastChangeTimeCh1 = millis();
         blinkActiveCh1 = true;
-        Serial.print("Updated Ch1 to ");
-        Serial.println(valueCh1);
+        Serial.print("Updated Ch1 display to ");
+        Serial.print(valueCh1);
+        Serial.print(", target remains ");
+        Serial.println(targetCh1);
       } else if (channel == 2 && !lockedCh2) {
         valueCh2 = constrain(receivedValue, 0, 99);
         lastChangeTimeCh2 = millis();
         blinkActiveCh2 = true;
-        Serial.print("Updated Ch2 to ");
-        Serial.println(valueCh2);
+        Serial.print("Updated Ch2 display to ");
+        Serial.print(valueCh2);
+        Serial.print(", target remains ");
+        Serial.println(targetCh2);
       }
     }
   }
@@ -329,17 +355,17 @@ void receiveEvent(int howMany) {
 
 // I2C request event
 void requestEvent() {
-  // Respond with both channels' values
+  // Respond with both channels' TARGET values (not display values)
   Wire.write((byte)1); // Channel 1 identifier
-  Wire.write((byte)(valueCh1 & 0xFF)); // Channel 1 value
+  Wire.write((byte)(targetCh1 & 0xFF)); // Channel 1 target
   Wire.write((byte)2); // Channel 2 identifier
-  Wire.write((byte)(valueCh2 & 0xFF)); // Channel 2 value
+  Wire.write((byte)(targetCh2 & 0xFF)); // Channel 2 target
   
   // Log request response payload
-  Serial.print("I2C Request Out: Channel=1, Value=");
-  Serial.print(valueCh1);
-  Serial.print("; Channel=2, Value=");
-  Serial.println(valueCh2);
+  Serial.print("I2C Request Out: Channel=1, Target=");
+  Serial.print(targetCh1);
+  Serial.print("; Channel=2, Target=");
+  Serial.println(targetCh2);
 }
 
 // Update 7-segment display with multiplexing
