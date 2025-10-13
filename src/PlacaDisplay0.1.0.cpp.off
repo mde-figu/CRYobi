@@ -215,27 +215,27 @@ void handleButtons() {
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
           blinkActiveCh2 = true;
-          sendI2C(2, valueCh2);
+          consolidatedCh2 = true;
         } else if (downPressedCh2) {
           targetCh2 = max(0, targetCh2 - 1);
           valueCh2 = targetCh2;
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
           blinkActiveCh2 = true;
-          sendI2C(2, valueCh2);
+          consolidatedCh2 = true;
         }
         if ((upPressedCh2 == false && downPressedCh2 == false) && consolidatedCh2){
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           consolidatedCh2 = false;
-          Serial.println("ENVIOU VALOR CONSOLIDADO");
+          Serial.println("ENVIOU VALOR CONSOLIDADO CH2");
         }
       }
     }
