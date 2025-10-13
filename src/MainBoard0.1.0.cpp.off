@@ -46,7 +46,9 @@ void setup() {
 
 void loop() {
   handleCastleSwitch();
-  pollTargets();
+  if (initial_setup_done) {
+    pollTargets();
+  }
   if (millis() - last_poll >= POLL_INTERVAL) {
     last_poll = millis();
     pollActualsAndUpdate();
