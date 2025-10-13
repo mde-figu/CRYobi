@@ -155,15 +155,15 @@ void handleButtons() {
       lockPressActiveCh1 = false; // Reset if both buttons aren't pressed
       if (!lockedCh1) {
         if (upPressedCh1) {
-          valueCh1 = min(99, valueCh1 + 1);
-          targetCh1 = valueCh1;
+          targetCh1 = min(99, targetCh1 + 1);
+          valueCh1 = targetCh1;
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
           blinkActiveCh1 = true;
           consolidatedCh1 = true;
         } else if (downPressedCh1) {
-          valueCh1 = max(0, valueCh1 - 1);
-          targetCh1 = valueCh1;
+          targetCh1 = max(0, targetCh1 - 1);
+          valueCh1 = targetCh1;
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
           blinkActiveCh1 = true;
@@ -210,15 +210,15 @@ void handleButtons() {
       lockPressActiveCh2 = false; // Reset if both buttons aren't pressed
       if (!lockedCh2) {
         if (upPressedCh2) {
-          valueCh2 = min(99, valueCh2 + 1);
-          targetCh2 = valueCh2;
+          targetCh2 = min(99, targetCh2 + 1);
+          valueCh2 = targetCh2;
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
           blinkActiveCh2 = true;
           sendI2C(2, valueCh2);
         } else if (downPressedCh2) {
-          valueCh2 = max(0, valueCh2 - 1);
-          targetCh2 = valueCh2;
+          targetCh2 = max(0, targetCh2 - 1);
+          valueCh2 = targetCh2;
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
           blinkActiveCh2 = true;
