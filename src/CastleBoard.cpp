@@ -69,7 +69,6 @@ void processCommand(byte cmd, byte len, byte* data) {
     byte motor_index = data[0]; // 0-21
     byte value = data[1]; // 0-99
     setMotorTarget(motor_index, value);
-    delay(50 * value); // motor demora para mexer, então esperamos 500ms por cada valor 
     sendResponse(CASTLE_ID, 2, 0, NULL);
   }
   if (!Wire.available()){
