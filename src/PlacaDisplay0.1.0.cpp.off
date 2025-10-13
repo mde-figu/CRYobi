@@ -59,6 +59,9 @@ bool lockPressActiveCh1 = false; // Whether Ch1 lock press is being detected
 bool lockPressActiveCh2 = false; // Whether Ch2 lock press is being detected
 bool consolidatedCh1 = false;
 bool consolidatedCh2 = false;
+unsigned long lastUserInteractionCh1 = 0;
+unsigned long lastUserInteractionCh2 = 0;
+const unsigned long SETTLING_PERIOD = 2000;
 
 // Function prototypes
 void receiveEvent(int howMany);
@@ -159,6 +162,7 @@ void handleButtons() {
           valueCh1 = targetCh1;
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
+          lastUserInteractionCh1 = currentTime;
           blinkActiveCh1 = true;
           consolidatedCh1 = true;
         } else if (downPressedCh1) {
@@ -166,6 +170,7 @@ void handleButtons() {
           valueCh1 = targetCh1;
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
+          lastUserInteractionCh1 = currentTime;
           blinkActiveCh1 = true;
           consolidatedCh1 = true;
         }
@@ -214,28 +219,30 @@ void handleButtons() {
           valueCh2 = targetCh2;
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
+          lastUserInteractionCh2 = currentTime;
           blinkActiveCh2 = true;
-          sendI2C(2, valueCh2);
+          consolidatedCh2 = true;
         } else if (downPressedCh2) {
           targetCh2 = max(0, targetCh2 - 1);
           valueCh2 = targetCh2;
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
+          lastUserInteractionCh2 = currentTime;
           blinkActiveCh2 = true;
-          sendI2C(2, valueCh2);
+          consolidatedCh2 = true;
         }
         if ((upPressedCh2 == false && downPressedCh2 == false) && consolidatedCh2){
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           delay(50);
-          sendI2C(1, valueCh2);
+          sendI2C(2, valueCh2);
           consolidatedCh2 = false;
-          Serial.println("ENVIOU VALOR CONSOLIDADO");
+          Serial.println("ENVIOU VALOR CONSOLIDADO CH2");
         }
       }
     }
@@ -327,22 +334,31 @@ void receiveEvent(int howMany) {
         Serial.println(targetCh2);
       }
     } else if (type == 1) { // Actual - only update display, preserve target
+      unsigned long currentTime = millis();
       if (channel == 1 && !lockedCh1) {
-        valueCh1 = constrain(receivedValue, 0, 99);
-        lastChangeTimeCh1 = millis();
-        blinkActiveCh1 = true;
-        Serial.print("Updated Ch1 display to ");
-        Serial.print(valueCh1);
-        Serial.print(", target remains ");
-        Serial.println(targetCh1);
+        if (currentTime - lastUserInteractionCh1 > SETTLING_PERIOD) {
+          valueCh1 = constrain(receivedValue, 0, 99);
+          lastChangeTimeCh1 = currentTime;
+          blinkActiveCh1 = true;
+          Serial.print("Updated Ch1 display to ");
+          Serial.print(valueCh1);
+          Serial.print(", target remains ");
+          Serial.println(targetCh1);
+        } else {
+          Serial.println("Suppressed Ch1 type=1 update during settling period");
+        }
       } else if (channel == 2 && !lockedCh2) {
-        valueCh2 = constrain(receivedValue, 0, 99);
-        lastChangeTimeCh2 = millis();
-        blinkActiveCh2 = true;
-        Serial.print("Updated Ch2 display to ");
-        Serial.print(valueCh2);
-        Serial.print(", target remains ");
-        Serial.println(targetCh2);
+        if (currentTime - lastUserInteractionCh2 > SETTLING_PERIOD) {
+          valueCh2 = constrain(receivedValue, 0, 99);
+          lastChangeTimeCh2 = currentTime;
+          blinkActiveCh2 = true;
+          Serial.print("Updated Ch2 display to ");
+          Serial.print(valueCh2);
+          Serial.print(", target remains ");
+          Serial.println(targetCh2);
+        } else {
+          Serial.println("Suppressed Ch2 type=1 update during settling period");
+        }
       }
     }
   }

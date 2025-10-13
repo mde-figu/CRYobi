@@ -18,7 +18,7 @@ unsigned long last_poll = 0;
 unsigned long last_button_time = 0;
 bool initial_setup_done = false;
 void handleCastleSwitch();
-void switchCastle(byte castle);
+bool switchCastle(byte castle);
 void pollTargets();
 void pollActualsAndUpdate();
 void sendToDisplays(byte type, byte* values);
@@ -39,7 +39,22 @@ void setup() {
 
   // Wait for boards to initialize
   delay(2000);
-  switchCastle(current_castle); // Initial setup
+  
+  byte retry_count = 0;
+  const byte MAX_RETRIES = 5;
+  while (!switchCastle(current_castle) && retry_count < MAX_RETRIES) {
+    retry_count++;
+    Serial.print("Retrying switchCastle, attempt ");
+    Serial.print(retry_count);
+    Serial.print("/");
+    Serial.println(MAX_RETRIES);
+    delay(1000);
+  }
+  
+  if (retry_count >= MAX_RETRIES) {
+    Serial.println("WARNING: Failed to initialize castle after max retries");
+  }
+  
   initial_setup_done = true;
   Serial.println("MainBoard started");
 }
@@ -60,21 +75,27 @@ void handleCastleSwitch() {
   if (current_time - last_button_time > DEBOUNCE_TIME) {
     if (digitalRead(CASTLE_UP_PIN) == LOW) {
       current_castle = min(4, current_castle + 1);
-      switchCastle(current_castle);
+      if (switchCastle(current_castle)) {
+        Serial.print("Switched to Castle ");
+        Serial.println(current_castle);
+      } else {
+        Serial.println("Failed to switch castle");
+      }
       last_button_time = current_time;
-      Serial.print("Switched to Castle ");
-      Serial.println(current_castle);
     } else if (digitalRead(CASTLE_DOWN_PIN) == LOW) {
       current_castle = max(1, current_castle - 1);
-      switchCastle(current_castle);
+      if (switchCastle(current_castle)) {
+        Serial.print("Switched to Castle ");
+        Serial.println(current_castle);
+      } else {
+        Serial.println("Failed to switch castle");
+      }
       last_button_time = current_time;
-      Serial.print("Switched to Castle ");
-      Serial.println(current_castle);
     }
   }
 }
 
-void switchCastle(byte castle) {
+bool switchCastle(byte castle) {
   byte pots[22];
   if (getPotsFromCastle(castle, pots)) {
     memcpy(targets, pots, sizeof(pots));
@@ -82,8 +103,10 @@ void switchCastle(byte castle) {
     sendToDisplays(0, pots); // Targets
     sendToDisplays(1, pots); // Actuals
     Serial.println("Castle switch: Pots updated and sent to displays");
+    return true;
   } else {
     Serial.println("Castle switch: Failed to get pots");
+    return false;
   }
 }
 
