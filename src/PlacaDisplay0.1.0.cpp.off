@@ -156,13 +156,11 @@ void handleButtons() {
           valueCh1 = min(99, valueCh1 + 1);
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
-          blinkActiveCh1 = true;
           consolidatedCh1 = true;
         } else if (downPressedCh1) {
           valueCh1 = max(0, valueCh1 - 1);
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
-          blinkActiveCh1 = true;
           consolidatedCh1 = true;
         }
         if ((upPressedCh1 == false && downPressedCh1 == false) && consolidatedCh1){
@@ -209,13 +207,11 @@ void handleButtons() {
           valueCh2 = min(99, valueCh2 + 1);
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
-          blinkActiveCh2 = true;
           sendI2C(2, valueCh2);
         } else if (downPressedCh2) {
           valueCh2 = max(0, valueCh2 - 1);
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
-          blinkActiveCh2 = true;
           sendI2C(2, valueCh2);
         }
         if ((upPressedCh2 == false && downPressedCh2 == false) && consolidatedCh2){
@@ -236,36 +232,24 @@ void handleButtons() {
   }
 }
 
-// Update blink states for each channel
+// Update blink states for each channel - NO BLINKING ON VALUE CHANGE
 void updateBlinkState() {
   unsigned long currentTime = millis();
   
-  // Channel 1 blink control
-  if (blinkActiveCh1) {
-    if (currentTime - lastChangeTimeCh1 >= blinkDuration) {
-      blinkActiveCh1 = false;
-      displayOnCh1 = true; // Stay on after blinking
-    } else if (currentTime - lastBlinkTimeCh1 >= blinkInterval) {
-      displayOnCh1 = !displayOnCh1;
-      lastBlinkTimeCh1 = currentTime;
-    }
-  } else if (lockedCh1 && (currentTime - lastBlinkTimeCh1 >= lockBlinkInterval)) {
+  // Channel 1 - only blink when locked, no blink on value change
+  if (lockedCh1 && (currentTime - lastBlinkTimeCh1 >= lockBlinkInterval)) {
     displayOnCh1 = !displayOnCh1;
     lastBlinkTimeCh1 = currentTime;
+  } else if (!lockedCh1) {
+    displayOnCh1 = true; // Always on when not locked
   }
   
-  // Channel 2 blink control
-  if (blinkActiveCh2) {
-    if (currentTime - lastChangeTimeCh2 >= blinkDuration) {
-      blinkActiveCh2 = false;
-      displayOnCh2 = true; // Stay on after blinking
-    } else if (currentTime - lastBlinkTimeCh2 >= blinkInterval) {
-      displayOnCh2 = !displayOnCh2;
-      lastBlinkTimeCh2 = currentTime;
-    }
-  } else if (lockedCh2 && (currentTime - lastBlinkTimeCh2 >= lockBlinkInterval)) {
+  // Channel 2 - only blink when locked, no blink on value change
+  if (lockedCh2 && (currentTime - lastBlinkTimeCh2 >= lockBlinkInterval)) {
     displayOnCh2 = !displayOnCh2;
     lastBlinkTimeCh2 = currentTime;
+  } else if (!lockedCh2) {
+    displayOnCh2 = true; // Always on when not locked
   }
 }
 
