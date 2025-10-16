@@ -59,17 +59,17 @@ void loop() {
 }
 
 void processCommand(byte cmd, byte len, byte* data) {
-  if (cmd == 1) { // Get all pots
-    Serial.println("Recebeu CMD1 lê os potenciometros");
-    fetchAllPots();
-    delay(500);
+  if (cmd == 1) { // Get all pots - NO FEEDBACK MODE
+    Serial.println("Recebeu CMD1 - No feedback mode, returning zeros");
+    for (byte i = 0; i < 22; i++) {
+      pot_values[i] = 0;
+    }
     sendResponse(CASTLE_ID, 1, 22, pot_values);
   } else if (cmd == 2 && len == 2) { // Set target
     Serial.println("Recebeu CMD2 Irá mover motor");
     byte motor_index = data[0]; // 0-21
     byte value = data[1]; // 0-99
     setMotorTarget(motor_index, value);
-    delay(50 * value); // motor demora para mexer, então esperamos 500ms por cada valor 
     sendResponse(CASTLE_ID, 2, 0, NULL);
   }
   if (!Wire.available()){
@@ -78,7 +78,9 @@ void processCommand(byte cmd, byte len, byte* data) {
     delay(500);
     Serial1.begin(9600);
     delay(500);
-    fetchAllPots();
+    for (byte i = 0; i < 22; i++) {
+      pot_values[i] = 0;
+    }
     sendResponse(CASTLE_ID, 1, 22, pot_values);
   }
 }

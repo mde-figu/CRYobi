@@ -37,8 +37,8 @@ const int lockPressDuration = 2000; // 2 seconds to lock/unlock
 #define CtrdigMSB_Ch2 12
 #define CtrdigLSB_Ch2 13
 
-int valueCh1 = 0; // Current value for Channel 1 (0-99)
-int valueCh2 = 0; // Current value for Channel 2 (0-99)
+int valueCh1 = 0; // Current value for Channel 1 (0-99) - NO FEEDBACK MODE
+int valueCh2 = 0; // Current value for Channel 2 (0-99) - NO FEEDBACK MODE
 unsigned long lastButtonTimeCh1 = 0;
 unsigned long lastButtonTimeCh2 = 0;
 unsigned long lastChangeTimeCh1 = 0; // Time of last Ch1 value change
@@ -156,15 +156,13 @@ void handleButtons() {
           valueCh1 = min(99, valueCh1 + 1);
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
-          blinkActiveCh1 = true;
           consolidatedCh1 = true;
         } else if (downPressedCh1) {
           valueCh1 = max(0, valueCh1 - 1);
           lastButtonTimeCh1 = currentTime;
           lastChangeTimeCh1 = currentTime;
-          blinkActiveCh1 = true;
           consolidatedCh1 = true;
-        } 
+        }
         if ((upPressedCh1 == false && downPressedCh1 == false) && consolidatedCh1){
           sendI2C(1, valueCh1);
           delay(50);
@@ -209,13 +207,11 @@ void handleButtons() {
           valueCh2 = min(99, valueCh2 + 1);
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
-          blinkActiveCh2 = true;
           sendI2C(2, valueCh2);
         } else if (downPressedCh2) {
           valueCh2 = max(0, valueCh2 - 1);
           lastButtonTimeCh2 = currentTime;
           lastChangeTimeCh2 = currentTime;
-          blinkActiveCh2 = true;
           sendI2C(2, valueCh2);
         }
         if ((upPressedCh2 == false && downPressedCh2 == false) && consolidatedCh2){
@@ -236,36 +232,24 @@ void handleButtons() {
   }
 }
 
-// Update blink states for each channel
+// Update blink states for each channel - NO BLINKING ON VALUE CHANGE
 void updateBlinkState() {
   unsigned long currentTime = millis();
   
-  // Channel 1 blink control
-  if (blinkActiveCh1) {
-    if (currentTime - lastChangeTimeCh1 >= blinkDuration) {
-      blinkActiveCh1 = false;
-      displayOnCh1 = true; // Stay on after blinking
-    } else if (currentTime - lastBlinkTimeCh1 >= blinkInterval) {
-      displayOnCh1 = !displayOnCh1;
-      lastBlinkTimeCh1 = currentTime;
-    }
-  } else if (lockedCh1 && (currentTime - lastBlinkTimeCh1 >= lockBlinkInterval)) {
+  // Channel 1 - only blink when locked, no blink on value change
+  if (lockedCh1 && (currentTime - lastBlinkTimeCh1 >= lockBlinkInterval)) {
     displayOnCh1 = !displayOnCh1;
     lastBlinkTimeCh1 = currentTime;
+  } else if (!lockedCh1) {
+    displayOnCh1 = true; // Always on when not locked
   }
   
-  // Channel 2 blink control
-  if (blinkActiveCh2) {
-    if (currentTime - lastChangeTimeCh2 >= blinkDuration) {
-      blinkActiveCh2 = false;
-      displayOnCh2 = true; // Stay on after blinking
-    } else if (currentTime - lastBlinkTimeCh2 >= blinkInterval) {
-      displayOnCh2 = !displayOnCh2;
-      lastBlinkTimeCh2 = currentTime;
-    }
-  } else if (lockedCh2 && (currentTime - lastBlinkTimeCh2 >= lockBlinkInterval)) {
+  // Channel 2 - only blink when locked, no blink on value change
+  if (lockedCh2 && (currentTime - lastBlinkTimeCh2 >= lockBlinkInterval)) {
     displayOnCh2 = !displayOnCh2;
     lastBlinkTimeCh2 = currentTime;
+  } else if (!lockedCh2) {
+    displayOnCh2 = true; // Always on when not locked
   }
 }
 
@@ -285,15 +269,15 @@ void sendI2C(byte channel, int value) {
   Serial.println(value);
 }
 
-// I2C receive event
+// I2C receive event - NO FEEDBACK MODE
 void receiveEvent(int howMany) {
-  Serial.print("I2C Received: Address=0x");
+  Serial.print("I2C Received (NO FEEDBACK MODE): Address=0x");
   Serial.print(I2C_ADDRESS, HEX);
   Serial.print(", Bytes=");
   Serial.println(howMany);
 
   if (howMany >= 3) { // Expect [type, channel, value]
-    byte type = Wire.read(); // 0 for target, 1 for actual
+    byte type = Wire.read(); // 0 for target, 1 for actual (ignored in no-feedback mode)
     byte channel = Wire.read();
     int receivedValue = Wire.read();
 
@@ -304,21 +288,8 @@ void receiveEvent(int howMany) {
     Serial.print(", Value=");
     Serial.println(receivedValue);
 
-    if (type == 1) { // Only update actuals (potentiometer values)
-      if (channel == 1 && !lockedCh1) {
-        valueCh1 = constrain(receivedValue, 0, 99);
-        lastChangeTimeCh1 = millis();
-        blinkActiveCh1 = true;
-        Serial.print("Updated Ch1 to ");
-        Serial.println(valueCh1);
-      } else if (channel == 2 && !lockedCh2) {
-        valueCh2 = constrain(receivedValue, 0, 99);
-        lastChangeTimeCh2 = millis();
-        blinkActiveCh2 = true;
-        Serial.print("Updated Ch2 to ");
-        Serial.println(valueCh2);
-      }
-    }
+    // In NO FEEDBACK MODE, we ignore all incoming values since display is the source of truth
+    Serial.println("NO FEEDBACK MODE: Ignoring incoming value, display controls motors");
   }
   while (Wire.available()) {
     byte discarded = Wire.read();
@@ -327,16 +298,16 @@ void receiveEvent(int howMany) {
   }
 }
 
-// I2C request event
+// I2C request event - NO FEEDBACK MODE
 void requestEvent() {
-  // Respond with both channels' values
+  // Respond with both channels' display values (no separate targets)
   Wire.write((byte)1); // Channel 1 identifier
   Wire.write((byte)(valueCh1 & 0xFF)); // Channel 1 value
   Wire.write((byte)2); // Channel 2 identifier
   Wire.write((byte)(valueCh2 & 0xFF)); // Channel 2 value
   
   // Log request response payload
-  Serial.print("I2C Request Out: Channel=1, Value=");
+  Serial.print("I2C Request Out (NO FEEDBACK MODE): Channel=1, Value=");
   Serial.print(valueCh1);
   Serial.print("; Channel=2, Value=");
   Serial.println(valueCh2);
